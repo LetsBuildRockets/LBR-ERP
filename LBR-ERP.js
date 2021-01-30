@@ -1,7 +1,7 @@
 var sqlite3 = require('sqlite3').verbose();
 const csv = require('csv-parser');
 const fs = require('fs');
-var db = new sqlite3.Database('R:/ERP.db');
+var db = new sqlite3.Database('"C:/active/ERP.db"');
 
 const USD_SCALE = 1e5
 
@@ -51,6 +51,24 @@ require('yargs')
   });
 }, (argv) => {
   updateQty(argv.partnumber, argv.qty)
+  .catch((error) => {
+    console.error(error.message);
+  })
+  .finally(() => {
+    console.log('closing db');
+    db.close();
+  });
+})
+.command('add-qty', 'add/subtract from part qty_on_hand', (y) => {
+  return y.option('partnumber', {
+    description: 'mfg part number',
+    required: true
+  }).option('qty', {
+    description: 'amount to add/subtract from qty_on_hand (use negatve for subtract)',
+    required: true
+  });
+}, (argv) => {
+  addQty(argv.partnumber, argv.qty)
   .catch((error) => {
     console.error(error.message);
   })
@@ -126,13 +144,37 @@ function load_csv(csv_URI) {
 
 function updateQty(mfg_pn, newQty) {
   return new Promise((resolve, reject) => {
-    db.run('UPDATE catalog SET qty_on_hand = ? WHERE mfg_pn = ?', [newQty, mfg_pn], (err) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve()
-      }
+    getPart(mfg_pn)
+    .then(() => {
+      db.run('UPDATE catalog SET qty_on_hand = ? WHERE mfg_pn = ?', [newQty, mfg_pn], (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve()
+        }
+      })
     })
+    .catch((err) => {
+      reject(err);
+    });
+  });
+}
+
+function addQty(mfg_pn, qty_to_add) {
+  return new Promise((resolve, reject) => {
+    getPart(mfg_pn)
+    .then(() => {
+      db.run('UPDATE catalog SET qty_on_hand = qty_on_hand + ? WHERE mfg_pn = ?', [qty_to_add, mfg_pn], (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve()
+        }
+      })
+    })
+    .catch((err) => {
+      reject(err);
+    });
   });
 }
 
@@ -141,6 +183,8 @@ function getPart(mfg_pn) {
     db.get("SELECT * FROM catalog WHERE mfg_pn=?", [mfg_pn], (err, row)  => {
       if (err) {
         reject(err);
+      } else if(row === undefined) {
+        reject(new Error('Part: \"' + mfg_pn + '\" not found in parts catalog!'));
       } else {
         resolve(row)
       }
